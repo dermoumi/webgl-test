@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Pizza mozarella~ rella~ rella~ rella~</title>
+    <script type="text/javascript" src="gl-matrix-min.js"></script>
+</head>
+<body>
+    <canvas id="rendertarget" width="750" height="750"></canvas>
+    <script type="text/javascript">
+        // Initialize opengl
+        var canvas = document.getElementById( 'rendertarget' );
+        var gl = canvas.getContext( 'webgl', { antialias: 1 } );
+        gl.viewport( 0, 0, canvas.width, canvas.height );
+
+        // Initialize shaders
+        var shaderProgram;
+        {
+            // Initialize vertex shader
+            var vertexShader = gl.createShader( gl.VERTEX_SHADER );
+            gl.shaderSource( vertexShader, '\
+                attribute vec3 aPosition;\
+                uniform mat4 uModelMatrix;\
+                uniform mat4 uViewMatrix;\
+                uniform mat4 uProjectionMatrix;\
+                uniform vec4 uColor;\
+                varying vec4 vColor;\
+                void main() {\
+                    vColor = uColor;\
+                    gl_Position = uProjectionMatrix * uViewMatrix * uModelMatrix * vec4( aPosition, 1.0 );\
+                }' );
+            gl.compileShader( vertexShader );
+
+            // initialize fragment shader
+            var fragmentShader = gl.createShader( gl.FRAGMENT_SHADER );
+            gl.shaderSource( fragmentShader, '\
+                precision highp float;\
+                varying vec4 vColor;\
+                void main() {\
+                    gl_FragColor = vColor;\
+                }' );
+            gl.compileShader( fragmentShader );
+
+            // Attach the shaders to the render program
+            shaderProgram = gl.createProgram();
+            gl.attachShader( shaderProgram, vertexShader );
+            gl.attachShader( shaderProgram, fragmentShader );
+            gl.linkProgram( shaderProgram );
+            gl.useProgram( shaderProgram );
+
+            // Enable Position vertex buffers for the shader
+            shaderProgram.aPosition = gl.getAttribLocation( shaderProgram, 'aPosition' );
+            gl.enableVertexAttribArray( shaderProgram.aPosition );
+
+            // Get the location of other uniforms
+            shaderProgram.uProjection = gl.getUniformLocation( shaderProgram, 'uProjectionMatrix' );
+            shaderProgram.uView = gl.getUniformLocation( shaderProgram, 'uViewMatrix' );
+            shaderProgram.uModel = gl.getUniformLocation( shaderProgram, 'uModelMatrix' );
+            shaderProgram.uColor = gl.getUniformLocation( shaderProgram, 'uColor' );
+
+            // Hopefuly GC'ing vertex and fragment shaders...
+        }
+
+        // Initialize the scene
+        gl.clearColor( 0.0, 0.0, 0.0, 1.0 );
+
+        // Setup projection matrix
+        var projection = mat4.create();
+        mat4.perspective( projection, 45, 1, 0.1, 100.0 );
+
+        // Setup modelview matrix
+        var camera = mat4.create();
+        mat4.identity( camera );
+        mat4.lookAt( camera, [7, 3.5, 3.5], [1.0, 1.0, -4.0], [0.0, 1.0, 0.0] );
+
+        // Setup scene
+        gl.uniformMatrix4fv( shaderProgram.uProjection, false, projection );
+        gl.uniformMatrix4fv( shaderProgram.uView, false, camera );
+        gl.lineWidth( 2.0 );
+
+        // Setup rendering
+        var lastFrametime = +new Date();
+        var drawFunc = function( dt ) {};
+        
+        // Start drawing
+        function update ( frameTime ) {
+            var dt = frameTime - lastFrametime;
+            if ( !dt ) dt = 0;
+
+            drawFunc( dt );
+            lastFrametime = frameTime;
+            requestAnimationFrame( update );
+        };
+        update();
+
+        // Geometry parameters
+        var beltSquares = 4.0;
+        var squareSize = 1.0;
+        var beltOffset = beltSquares * squareSize * 0.5;
+        var PI_2 = Math.PI * 2.0;
+        var zOffset = squareSize * 1.33;
+        var maxObjects = 30.0;
+
+        var animationPercent = 0.0;
+        var animationDuration = 1.0;
+
+        //----------------------------------------------------------
+        function updateAnimation( dt ) {
+            animationPercent = ( this.animationPercent + dt / 1000 ) % 1.0;
+        }
+
+        //----------------------------------------------------------
+        function BeltObject() {
+            this.modelMatrix = mat4.create();
+            mat4.identity( this.modelMatrix );
+
+            var beltVertices = [];
+            for ( var i = 0; i <= beltSquares; ++i ) {
+                beltVertices.push( i * squareSize );
+                beltVertices.push( 0.0 );
+                beltVertices.push( 0.0 );
+                beltVertices.push( i * squareSize );
+                beltVertices.push( 0.0 );
+                beltVertices.push( -squareSize );
+            }
+
+            this.verticesBuffer = gl.createBuffer();
+            gl.bindBuffer( gl.ARRAY_BUFFER, this.verticesBuffer );
+            gl.bufferData( gl.ARRAY_BUFFER, new Float32Array( beltVertices ), gl.STATIC_DRAW );
+
+            var wireframe = [ 0, 1 ];
+            for ( var i = 0; i < beltSquares; ++i ) {
+                var index = i * 2;
+                wireframe.push( index );
+                wireframe.push( index + 2 );
+                wireframe.push( index + 1 );
+                wireframe.push( index + 3 );
+                wireframe.push( index + 2 );
+                wireframe.push( index + 3 );
+            }
+
+            this.wireframeBuffer = gl.createBuffer();
+            gl.bindBuffer( gl.ELEMENT_ARRAY_BUFFER, this.wireframeBuffer );
+            gl.bufferData( gl.ELEMENT_ARRAY_BUFFER, new Uint16Array( wireframe ), gl.STATIC_DRAW );
+
+            var faceIndices = [];
+            for ( var i = 0; i <= beltSquares; ++i ) {
+                faceIndices.push( i * 2 );
+                faceIndices.push( i * 2 + 1);
+            }
+
+            this.facesBuffer = gl.createBuffer();
+            gl.bindBuffer( gl.ELEMENT_ARRAY_BUFFER, this.facesBuffer );
+            gl.bufferData( gl.ELEMENT_ARRAY_BUFFER, new Uint16Array( faceIndices ), gl.STATIC_DRAW );
+        }
+
+        //----------------------------------------------------------
+        BeltObject.prototype.setOffset = function( index )
+        {
+            this.modelMatrix = mat4.create();
+            mat4.identity( this.modelMatrix );
+
+            mat4.translate( this.modelMatrix, this.modelMatrix,
+                [animationPercent * squareSize -beltOffset, 0.0, index * -zOffset] );
+        };
+
+        //----------------------------------------------------------
+        BeltObject.prototype.render = function() {
+            gl.uniformMatrix4fv( shaderProgram.uModel, false, this.modelMatrix );
+
+            gl.disable( gl.DEPTH_TEST );
+            gl.bindBuffer( gl.ARRAY_BUFFER, this.verticesBuffer );
+            gl.vertexAttribPointer( shaderProgram.aPosition, 3, gl.FLOAT, false, 0, 0 );
+
+            gl.uniform4f( shaderProgram.uColor, 0.0, 0.0, 0.0, 1.0);
+            gl.bindBuffer( gl.ELEMENT_ARRAY_BUFFER, this.facesBuffer );
+            gl.drawElements( gl.TRIANGLE_STRIP, beltSquares * 2 + 2, gl.UNSIGNED_SHORT, 0 );
+
+            gl.uniform4f( shaderProgram.uColor, 0.0, 1.0, 1.0, 1.0);
+            gl.bindBuffer( gl.ELEMENT_ARRAY_BUFFER, this.wireframeBuffer );
+            gl.drawElements( gl.LINES, beltSquares * 6 + 2, gl.UNSIGNED_SHORT, 0 );
+        };
+
+        //------------------------------------------------------
+        function WireframeObject( sideCount, flipped ) {
+            // Save and precalculate data
+            this.sideCount = sideCount;
+            this.rotationAngle = PI_2 * ( 1.0/sideCount );
+            this.isFlipped = flipped;
+
+            this.modelMatrix = mat4.create();
+            mat4.identity( this.modelMatrix );
+
+            //--------------------------------------------------
+            // Generate the main vertices
+            var vertices = [ 0.0, 0.0, 0.0, 0.0, 0.0, -squareSize ];
+            if ( sideCount == 2) {
+                // Special case for a single square
+                vertices = [
+                    0.0, 0.0, 0.0, 0.0, 0.0, -squareSize,
+                    1.0, 0.0, 0.0, 1.0, 0.0, -squareSize
+                ];
+            }
+            else {
+                for ( var i = 1; i < sideCount; ++i ) {
+                    var lastIndex = ( i*2 - 1 ) * 3;
+                    var theta = PI_2 * i / sideCount;
+                    var x = vertices[ lastIndex + 0] - squareSize * Math.cos( theta );
+                    var y = vertices[ lastIndex + 1] + squareSize * Math.sin( theta )
+
+                    vertices.push( x );
+                    vertices.push( y );
+                    vertices.push( 0.0 );
+
+                    vertices.push( x );
+                    vertices.push( y );
+                    vertices.push( -squareSize );
+                }
+            }
+            this.vertexBuffer = gl.createBuffer();
+            gl.bindBuffer( gl.ARRAY_BUFFER, this.vertexBuffer );
+            gl.bufferData( gl.ARRAY_BUFFER, new Float32Array( vertices ), gl.STATIC_DRAW );
+
+            //--------------------------------------------------
+            // Generate The main wireframe
+            var wireframe = [];
+            if ( sideCount == 2 ) {
+                // Special case for a single square
+                wireframe = [ 0, 1, 1, 3, 3, 2, 2, 0 ];
+            }
+            else {
+                for ( var i = 0; i < sideCount; ++i ) {
+                    var index = i * 2;
+                    var next = ( i+1 >= sideCount ) ? 0 : (i+1) * 2; 
+                    wireframe.push( index );
+                    wireframe.push( index + 1 );
+                    wireframe.push( index );
+                    wireframe.push( next );
+                    wireframe.push( index + 1 );
+                    wireframe.push( next + 1 );
+                }
+            }
+            this.wireframeBuffer = gl.createBuffer();
+            gl.bindBuffer( gl.ELEMENT_ARRAY_BUFFER, this.wireframeBuffer );
+            gl.bufferData( gl.ELEMENT_ARRAY_BUFFER, new Uint16Array( wireframe ), gl.STATIC_DRAW );
+
+            //--------------------------------------------------
+            // Generate the side faces, as a triangle strip
+            var sides = [];
+            if ( sideCount == 2 ) {
+                sides = [ 0, 1, 2, 3 ];
+            }
+            else {
+                for ( var i = 0; i < sideCount; ++i ) {
+                    var index = i * 2;
+                    var next = ( i+1 >= sideCount ) ? 0 : (i+1) * 2;
+                    sides.push( index );
+                    sides.push( index + 1 );
+                }
+                sides.push( 0 );
+                sides.push( 1 );
+            }
+
+            this.sidesBuffer = gl.createBuffer();
+            gl.bindBuffer( gl.ELEMENT_ARRAY_BUFFER, this.sidesBuffer );
+            gl.bufferData( gl.ELEMENT_ARRAY_BUFFER, new Uint16Array( sides ), gl.STATIC_DRAW );
+
+            //--------------------------------------------------
+            // Stop here if just a single square
+            if ( sideCount == 2 ) return;
+
+            //--------------------------------------------------
+            // Generate the back cap, as a triangle fan, clockwise (counter the norm)
+            var backCap = [];
+            for ( var i = sideCount - 1; i >= 0; --i ) {
+                backCap.push( i * 2 + 1 );
+            }
+
+            this.backCapBuffer = gl.createBuffer();
+            gl.bindBuffer( gl.ELEMENT_ARRAY_BUFFER, this.backCapBuffer );
+            gl.bufferData( gl.ELEMENT_ARRAY_BUFFER, new Uint16Array( backCap ), gl.STATIC_DRAW );
+
+            //--------------------------------------------------
+            // Generate the front cap, as a triangle fan, counter clockwise
+            // Needed to partially hide some artifacts
+            var frontCap = [];
+            for ( var i = sideCount - 1; i >= 0; --i ) {
+            // for ( var i = 0; i < sideCount; ++i ) {
+                frontCap.push( i * 2 );
+            }
+
+            this.frontCapBuffer = gl.createBuffer();
+            gl.bindBuffer( gl.ELEMENT_ARRAY_BUFFER, this.frontCapBuffer );
+            gl.bufferData( gl.ELEMENT_ARRAY_BUFFER, new Uint16Array( frontCap ), gl.STATIC_DRAW );
+
+            //--------------------------------------------------
+            // Generate the front cap wireframe, needed to hide some artifacts
+            var capFrame = [ 0 ];
+            for ( var i = 1; i < sideCount; ++i ) {
+                capFrame.push( i * 2 );
+                capFrame.push( i * 2 );
+            }
+            capFrame.push( 0 );
+
+            this.capFrameBuffer = gl.createBuffer();
+            gl.bindBuffer( gl.ELEMENT_ARRAY_BUFFER, this.capFrameBuffer );
+            gl.bufferData( gl.ELEMENT_ARRAY_BUFFER, new Uint16Array( capFrame ), gl.STATIC_DRAW );
+        };
+
+        //----------------------------------------------------------
+        WireframeObject.prototype.update = function() {
+            this.modelMatrix = mat4.create();
+            mat4.identity( this.modelMatrix );
+
+            if ( this.isFlipped ) {
+                mat4.scale( this.modelMatrix, this.modelMatrix, [1.0, -1.0, 1.0] );
+            }
+
+            mat4.translate( this.modelMatrix, this.modelMatrix,
+                [animationPercent * squareSize + (this.isFlipped ? beltOffset : -beltOffset), 0.0, (this.sideCount - 2) * -zOffset] );
+
+            mat4.rotateZ( this.modelMatrix, this.modelMatrix,
+                animationPercent * this.rotationAngle );
+        };
+
+        //----------------------------------------------------------
+        WireframeObject.prototype.render = function() {
+
+            gl.uniformMatrix4fv( shaderProgram.uModel, false, this.modelMatrix );
+
+            gl.bindBuffer( gl.ARRAY_BUFFER, this.vertexBuffer );
+            gl.vertexAttribPointer( shaderProgram.aPosition, 3, gl.FLOAT, false, 0, 0 );
+
+            // 2 faces is a special case:
+            if ( this.sideCount == 2 ) {
+                // No culling and depth test please
+                gl.disable( gl.CULL_FACE );
+                gl.disable( gl.DEPTH_TEST );
+
+                // Draw a black, non culled square, to cover up objects behind
+                gl.uniform4f( shaderProgram.uColor, 0.0, 0.0, 0.0, 1.0);
+                gl.bindBuffer( gl.ELEMENT_ARRAY_BUFFER, this.sidesBuffer );
+                gl.drawElements( gl.TRIANGLE_STRIP, 4, gl.UNSIGNED_SHORT, 0 );                
+                
+                // Draw the wireframe, in cyan
+                gl.uniform4f( shaderProgram.uColor, 0.0, 1.0, 1.0, 1.0);
+                gl.bindBuffer( gl.ELEMENT_ARRAY_BUFFER, this.wireframeBuffer );
+                gl.drawElements( gl.LINES, 8, gl.UNSIGNED_SHORT, 0 );
+
+                // Stop here, ignore other stuff
+                return;
+            }
+
+            // Enable depth test
+            gl.enable( gl.DEPTH_TEST );
+
+            // Enable face culling
+            gl.enable( gl.CULL_FACE );
+            gl.frontFace( gl.CCW );
+            // Cull back faces for the sides and back cap
+            
+            gl.cullFace( this.isFlipped ? gl.FRONT : gl.BACK );
+
+            // Set the faces color to black
+            gl.uniform4f( shaderProgram.uColor, 0.0, 0.0, 0.0, 1.0);
+
+            // Draw back cap
+            gl.bindBuffer( gl.ELEMENT_ARRAY_BUFFER, this.backCapBuffer );
+            gl.drawElements( gl.TRIANGLE_FAN, this.sideCount, gl.UNSIGNED_SHORT, 0 );
+
+            // Draw side faces
+            gl.bindBuffer( gl.ELEMENT_ARRAY_BUFFER, this.sidesBuffer );
+            gl.drawElements( gl.TRIANGLE_STRIP, this.sideCount * 2 + 2, gl.UNSIGNED_SHORT, 0 );
+
+            // Front face 
+            gl.disable( gl.CULL_FACE );
+            gl.bindBuffer( gl.ELEMENT_ARRAY_BUFFER, this.frontCapBuffer );
+            gl.drawElements( gl.TRIANGLE_FAN, this.sideCount, gl.UNSIGNED_SHORT, 0 );
+            
+            // Change color to cyan for the wireframes
+            gl.uniform4f( shaderProgram.uColor, 0.0, 1.0, 1.0, 1.0);
+
+            // Draw first pass of wireframes, collision with other
+            // faces will cause some artifacs
+            gl.bindBuffer( gl.ELEMENT_ARRAY_BUFFER, this.wireframeBuffer );
+            gl.drawElements( gl.LINES, this.sideCount * 6, gl.UNSIGNED_SHORT, 0 );
+            
+            // Draw second pass of wireframes, only front cap
+            // Without depth test, to fix the lines' width.
+            gl.disable( gl.DEPTH_TEST );
+            gl.bindBuffer( gl.ELEMENT_ARRAY_BUFFER, this.capFrameBuffer );
+            gl.drawElements( gl.LINES, this.sideCount * 2, gl.UNSIGNED_SHORT, 0 );
+        };
+
+        var upObjects = [];
+        var downObjects = [];
+
+        for ( var i = 0; i < maxObjects; ++i ) {
+            upObjects.push( new WireframeObject( i + 2 ) );
+            downObjects.push( new WireframeObject( i + 2, true ) );
+        }
+
+        var belt = new BeltObject;
+
+        // Setup Drawing function
+        drawFunc = function( dt ) {
+            updateAnimation( dt );
+
+            gl.clear( gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT );
+
+            for ( var i = maxObjects - 1; i >= 0; --i ) {
+                upObjects[i].update();
+                downObjects[i].update();
+                belt.setOffset( i );
+
+                downObjects[i].render();
+                belt.render();
+                upObjects[i].render();
+            }
+        };
+    </script>
+</body>
+</html>
