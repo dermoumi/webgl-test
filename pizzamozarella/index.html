@@ -51,6 +51,12 @@
         //  Mainly on the right side objects if you look closely,
         //  But they're barely visible so nop really a problem...
         //
+        // Edit: a third method would be to generate appropriate
+        //  normals, and discard any fragment whose normal is facing
+        //  away from the camera, but i'm too lazy to do the
+        //  generation math (cross dotting vectors of the 3 lines
+        //  adjacent to the vertex? would be aweful to guess which
+        //  vertices (and lines) are directly adjacent to which...)
 
         //----------------------------------------------------------
         // Global variables
