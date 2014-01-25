@@ -8,11 +8,70 @@
 <body>
     <canvas id="rendertarget" width="750" height="750"></canvas>
     <script type="text/javascript">
+        //----------------------------------------------------------
+        //
+        //         .---.
+        //        |   '.|  __
+        //        | ___.--'  )
+        //      _.-'_` _%%%_/ 
+        //   .-'%%% a: a %%%            
+        //       %%  L   %%_         I'm sorry, I don't have
+        //       _%\'-' |  /-.__         enough lollipops in stock
+        //    .-' / )--' #/     '\      to sell you 10 of them...
+        //   /'  /  /---'(    :   \
+        //  /   |  /( /|##|  \     |
+        // /   ||# | / | /|   \    \
+        // |   ||##| I \/ |   |   _|
+        // |   ||: | o  |#|   |  / |
+        // |   ||  / I  |:/  /   |/
+        // |   ||  | o   /  /    /
+        // |   \|  | I  |. /    /
+        //  \  /|##| o  |.|    /
+        //   \/ \::|/\_ /  ---'|
+        // 
+        // About the little hack.
+        // Since WebGL (and GLES) doesn't support glPolygonMode,
+        // There was no way to create solid wireframe objects
+        // (wireframe objects that culls what's behind), so I had
+        // to resort to one of two possible alternatives I could
+        // think of:
+        // 1. Drawing all objects into a separate depth framebuffer,
+        //  and pass it to shaders, discarding fragments with higher
+        //  z index. I've never done this practically, however. I
+        //  decided to not bother with it since it sounds like more
+        //  work... (three.js seems to it this way at least...)
+        // 2. Drawing faces with inversed normals, in the same pass
+        //  as wireframes, with depth test and backface culling.
+        //  This will hide objects that's behind. A small artifact
+        //  where some wireframes are barely visible occurs. Since
+        //  They're mainly the front caps' wireframe, i'll just draw
+        //  them over without depth test, making the whole scene
+        //  camera dependant...
+        //  There are still some artifacts which i'm unable to fix,
+        //  Mainly on the right side objects if you look closely,
+        //  But they're barely visible so nop really a problem...
+        //
+
+        //----------------------------------------------------------
+        // Global variables
+        var beltSquares = 4.0;
+        var squareSize = 1.0;
+        var beltOffset = beltSquares * squareSize * 0.5;
+        var PI_2 = Math.PI * 2.0;
+        var zOffset = squareSize * 1.33;
+        var maxObjects = 40.0;
+
+        var animationPercent = 0.0;
+        var animationDuration = 1000; // 1000ms per animation loop cycle
+
+        //----------------------------------------------------------
         // Initialize opengl
         var canvas = document.getElementById( 'rendertarget' );
         var gl = canvas.getContext( 'webgl', { antialias: 1 } );
         gl.viewport( 0, 0, canvas.width, canvas.height );
+        gl.clearColor( 0.0, 0.0, 0.0, 1.0 );
 
+        //----------------------------------------------------------
         // Initialize shaders
         var shaderProgram;
         {
@@ -58,55 +117,7 @@
             shaderProgram.uModel = gl.getUniformLocation( shaderProgram, 'uModelMatrix' );
             shaderProgram.uColor = gl.getUniformLocation( shaderProgram, 'uColor' );
 
-            // Hopefuly GC'ing vertex and fragment shaders...
-        }
-
-        // Initialize the scene
-        gl.clearColor( 0.0, 0.0, 0.0, 1.0 );
-
-        // Setup projection matrix
-        var projection = mat4.create();
-        mat4.perspective( projection, 45, 1, 0.1, 100.0 );
-
-        // Setup modelview matrix
-        var camera = mat4.create();
-        mat4.identity( camera );
-        mat4.lookAt( camera, [7, 3.5, 3.5], [1.0, 1.0, -4.0], [0.0, 1.0, 0.0] );
-
-        // Setup scene
-        gl.uniformMatrix4fv( shaderProgram.uProjection, false, projection );
-        gl.uniformMatrix4fv( shaderProgram.uView, false, camera );
-        gl.lineWidth( 2.0 );
-
-        // Setup rendering
-        var lastFrametime = +new Date();
-        var drawFunc = function( dt ) {};
-        
-        // Start drawing
-        function update ( frameTime ) {
-            var dt = frameTime - lastFrametime;
-            if ( !dt ) dt = 0;
-
-            drawFunc( dt );
-            lastFrametime = frameTime;
-            requestAnimationFrame( update );
-        };
-        update();
-
-        // Geometry parameters
-        var beltSquares = 4.0;
-        var squareSize = 1.0;
-        var beltOffset = beltSquares * squareSize * 0.5;
-        var PI_2 = Math.PI * 2.0;
-        var zOffset = squareSize * 1.33;
-        var maxObjects = 30.0;
-
-        var animationPercent = 0.0;
-        var animationDuration = 1.0;
-
-        //----------------------------------------------------------
-        function updateAnimation( dt ) {
-            animationPercent = ( this.animationPercent + dt / 1000 ) % 1.0;
+            // Hopefuly Garbage Collecting vertex and fragment shaders...
         }
 
         //----------------------------------------------------------
@@ -154,7 +165,6 @@
             gl.bufferData( gl.ELEMENT_ARRAY_BUFFER, new Uint16Array( faceIndices ), gl.STATIC_DRAW );
         }
 
-        //----------------------------------------------------------
         BeltObject.prototype.setOffset = function( index )
         {
             this.modelMatrix = mat4.create();
@@ -164,7 +174,6 @@
                 [animationPercent * squareSize -beltOffset, 0.0, index * -zOffset] );
         };
 
-        //----------------------------------------------------------
         BeltObject.prototype.render = function() {
             gl.uniformMatrix4fv( shaderProgram.uModel, false, this.modelMatrix );
 
@@ -307,7 +316,6 @@
             gl.bufferData( gl.ELEMENT_ARRAY_BUFFER, new Uint16Array( capFrame ), gl.STATIC_DRAW );
         };
 
-        //----------------------------------------------------------
         WireframeObject.prototype.update = function() {
             this.modelMatrix = mat4.create();
             mat4.identity( this.modelMatrix );
@@ -323,7 +331,6 @@
                 animationPercent * this.rotationAngle );
         };
 
-        //----------------------------------------------------------
         WireframeObject.prototype.render = function() {
 
             gl.uniformMatrix4fv( shaderProgram.uModel, false, this.modelMatrix );
@@ -392,6 +399,29 @@
             gl.drawElements( gl.LINES, this.sideCount * 2, gl.UNSIGNED_SHORT, 0 );
         };
 
+        //----------------------------------------------------------
+        // Setup projection matrix
+        var projection = mat4.create();
+        mat4.perspective( projection, 45, 1, 0.1, 100.0 );
+
+        // Setup modelview matrix
+        var camera = mat4.create();
+        mat4.identity( camera );
+        mat4.lookAt( camera, [7, 3.5, 3.5], [1.0, 1.0, -4.0], [0.0, 1.0, 0.0] );
+
+        // Setup scene
+        gl.uniformMatrix4fv( shaderProgram.uProjection, false, projection );
+        gl.uniformMatrix4fv( shaderProgram.uView, false, camera );
+        gl.lineWidth( 2.0 );
+
+        // Setup rendering
+        var lastFrametime = +new Date();
+        var drawFunc = function( dt ) {};
+        update();
+
+        //----------------------------------------------------------
+        // Setup the scene
+        var belt = new BeltObject;
         var upObjects = [];
         var downObjects = [];
 
@@ -400,14 +430,28 @@
             downObjects.push( new WireframeObject( i + 2, true ) );
         }
 
-        var belt = new BeltObject;
+        //----------------------------------------------------------
+        // Drawing function
+        function update ( frameTime ) {
+            var dt = frameTime - lastFrametime;
+            if ( !dt ) dt = 0;
 
+            drawFunc( dt );
+            lastFrametime = frameTime;
+            requestAnimationFrame( update );
+        };
+
+        //----------------------------------------------------------
+        function updateAnimation( dt ) {
+            animationPercent = ( animationPercent + dt / animationDuration ) % 1.0;
+        }
+
+        //----------------------------------------------------------
         // Setup Drawing function
         drawFunc = function( dt ) {
             updateAnimation( dt );
 
             gl.clear( gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT );
-
             for ( var i = maxObjects - 1; i >= 0; --i ) {
                 upObjects[i].update();
                 downObjects[i].update();
